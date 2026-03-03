@@ -1,6 +1,10 @@
 .venv/
 __pycache__/
 *.pyc
+data/app.db
+output/
+logs/
+archive/
 *.db
 *.log
 .DS_Store

@@ -1,0 +1,8 @@
+{
+    "paths": {
+        "input_dir": "input",
+        "archive_dir": "archive",
+        "output_dir": "output",
+        "db_path": "data/app.db"
+    }
+}

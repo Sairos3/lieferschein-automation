@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS delivery_notes (
   total REAL,
   source_pdf TEXT,
   created_at TEXT DEFAULT (datetime('now')),
-  UNIQUE(supplier_id, delivery_note_no),
+  UNIQUE(supplier_id, delivery_note_no, delivery_date),
   FOREIGN KEY (supplier_id) REFERENCES suppliers(id)
 );
 
