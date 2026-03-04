@@ -9,7 +9,9 @@ PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS suppliers (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL UNIQUE
+  name TEXT NOT NULL,
+  tax_no TEXT NOT NULL DEFAULT '',
+  UNIQUE(name, tax_no)
 );
 
 CREATE TABLE IF NOT EXISTS delivery_notes (
@@ -19,12 +21,12 @@ CREATE TABLE IF NOT EXISTS delivery_notes (
   delivery_date TEXT NOT NULL,
   customer_no TEXT,
   order_no TEXT,
+  tax_no TEXT,
   subtotal REAL,
   vat REAL,
   total REAL,
   source_pdf TEXT,
   created_at TEXT DEFAULT (datetime('now')),
-  UNIQUE(supplier_id, delivery_note_no, delivery_date),
   FOREIGN KEY (supplier_id) REFERENCES suppliers(id)
 );
 

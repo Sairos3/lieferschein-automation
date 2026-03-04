@@ -3,11 +3,12 @@ import logging
 from pathlib import Path
 from src.pdf_text import extract_text
 from src.parsers.template1 import parse_template1
-from src.db import get_con, insert_delivery_note
+from src.db import get_con, insert_delivery_note, upsert_supplier, delivery_note_exists
 from src.export_excel import export_to_excel
 from src.archive import archive_pdf
 from src.logging_config import setup_logging
-
+from src.ui_review import needs_review, review_dialog
+from src.ui_duplicate import duplicate_dialog
 
 def load_config():
     with open("config.json", "r", encoding="utf-8") as f:
@@ -32,8 +33,9 @@ def main():
     skipped = 0
 
     for pdf_path in pdfs:
-        # Skip scanned for now (OCR later)
-        if "Scanned" in pdf_path.name or "scanned" in pdf_path.name.lower():
+
+        # Skip scanned PDFs
+        if "scanned" in pdf_path.name.lower():
             print(f"\n--- SKIP (scanned for now) --- {pdf_path.name}")
             skipped += 1
             continue
@@ -42,12 +44,13 @@ def main():
 
         text = extract_text(pdf_path)
         result = parse_template1(text)
+
+        # ---- Totals validation ----
         items_sum = round(sum((it.line_total or 0) for it in result["items"]), 2)
         subtotal = result.get("subtotal")
         vat = result.get("vat")
         total = result.get("total")
 
-        # Validation rules (tolerance 0.01)
         tol = 0.01
 
         if subtotal is not None and abs(items_sum - subtotal) > tol:
@@ -61,36 +64,77 @@ def main():
                 logger.warning(
                     f"Total mismatch in {pdf_path.name}: subtotal+vat={calc_total} total={total}"
                 )
+
         logger.info(f"Totals: subtotal={subtotal} vat={vat} total={total}")
+
         print("  supplier:", result["supplier"])
         print("  delivery_note_no:", result["delivery_note_no"])
         print("  delivery_date:", result["delivery_date"])
         print("  items:", len(result["items"]))
 
+        # ---- Manual review UI ----
+        if needs_review(result):
+            logger.warning(f"Needs manual review: {pdf_path.name}")
+
+            corrected = review_dialog(result, title=f"Review: {pdf_path.name}")
+
+            if corrected is None:
+                logger.warning(f"User cancelled review, skipping: {pdf_path.name}")
+                skipped += 1
+                continue
+
+            result = corrected
+            logger.info(f"User corrected data for: {pdf_path.name}")
+
+        # ---- Save to database ----
         with get_con(db_path) as con:
+
+            # Check duplicate first
+            supplier_id = upsert_supplier(
+                con,
+                (result.get("supplier") or "UNKNOWN"),
+                (result.get("tax_no") or "")
+            )
+
+            if delivery_note_exists(
+                con,
+                supplier_id=supplier_id,
+                delivery_date=result.get("delivery_date"),
+                customer_no=result.get("customer_no"),
+                order_no=result.get("order_no"),
+                tax_no=result.get("tax_no"),
+            ):
+
+                logger.warning(f"Duplicate detected: {pdf_path.name}")
+
+                if duplicate_dialog(pdf_path.name):
+
+                    corrected = review_dialog(result, title=f"Edit duplicate: {pdf_path.name}")
+
+                    if corrected is None:
+                        skipped += 1
+                        continue
+
+                    result = corrected
+                    logger.info("User edited duplicate data")
+
+                else:
+                    skipped += 1
+                    logger.info("User confirmed duplicate skip")
+                    continue
+
             try:
                 dn_id = insert_delivery_note(con, result, source_pdf=pdf_path.name)
                 con.commit()
+
                 logger.info(f"Saved to DB. delivery_note_id={dn_id}")
                 imported += 1
-
-                archived_to = archive_pdf(pdf_path, archive_root, result["supplier"], result["delivery_date"])
-                logger.info(f"Archived to: {archived_to}")
-
-            except ValueError as e:
-                logger.warning(str(e))
-                skipped += 1
 
             except Exception:
                 logger.exception("Unexpected error while processing file")
                 skipped += 1
-        items_sum = sum((it.line_total or 0) for it in result["items"])
-        if result.get("subtotal") is not None:
-            if abs(items_sum - result["subtotal"]) > 0.01:
-                logger.warning(
-                    f"Subtotal mismatch for {pdf_path.name}: items_sum={items_sum} subtotal={result['subtotal']}"
-                )
-        # after con.commit():
+                continue
+        # ---- Archive PDF ----
         archive_root = Path(cfg["paths"]["archive_dir"])
         archived_to = archive_pdf(pdf_path, archive_root, result["supplier"], result["delivery_date"])
         print("  Archived to:", archived_to)

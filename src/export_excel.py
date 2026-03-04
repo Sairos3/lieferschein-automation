@@ -131,20 +131,22 @@ def export_to_excel(db_path: Path, output_path: Path) -> None:
 
     # Sheet 3: Summary
     ws_summary = wb.create_sheet("Summary")
-    ws_summary.append(["Supplier", "Total Amount"])
+    ws_summary.append(["Supplier", "Tax No", "Total Amount"])
     style_header(ws_summary)
 
     summary_rows = con.execute("""
-        SELECT s.name, COALESCE(SUM(d.total), 0)
+        SELECT s.name,
+            s.tax_no,
+            COALESCE(SUM(CAST(d.total AS REAL)), 0)
         FROM delivery_notes d
         JOIN suppliers s ON s.id = d.supplier_id
-        GROUP BY s.name
-        ORDER BY s.name
+        GROUP BY s.id, s.name, s.tax_no
+        ORDER BY s.name, s.tax_no
     """).fetchall()
     for r in summary_rows:
         ws_summary.append(r)
-    apply_column_alignment(ws_summary, {1: "left", 2: "right"})
-    apply_number_formats(ws_summary, {2: '#,##0.00 "€"'})
+    apply_column_alignment(ws_summary, {1: "left", 2: "left", 3: "right"})
+    apply_number_formats(ws_summary, {3: '#,##0.00 "€"'})
     # Auto adjust widths
     auto_adjust_column_width(ws_notes)
     auto_adjust_column_width(ws_items)

@@ -23,7 +23,8 @@ def parse_template1(text: str) -> Dict[str, Any]:
     delivery_date = m(r"Datum\s*:\s*([0-9]{2}\.[0-9]{2}\.[0-9]{3,4})")  # your sample has 3-4 digits
     customer_no = m(r"Kunden-Nr\.\s*:\s*([A-Za-z0-9-]+)")
     order_no = m(r"Bestell-Nr\.\s*:\s*([A-Za-z0-9-]+)")
-
+    tax_no = m(r"Steuer-Nr\.\:\s*([A-Z0-9]+)")
+    
     items: List[ParsedItem] = []
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
 
@@ -81,4 +82,5 @@ def parse_template1(text: str) -> Dict[str, Any]:
         "vat": vat,
         "total": total,
         "items": items,
+        "tax_no": tax_no,
     }
