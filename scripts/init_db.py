@@ -41,6 +41,28 @@ CREATE TABLE IF NOT EXISTS delivery_note_items (
   line_total REAL,
   FOREIGN KEY (delivery_note_id) REFERENCES delivery_notes(id)
 );
+
+CREATE TABLE IF NOT EXISTS invoices (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  supplier_id INTEGER NOT NULL,
+  invoice_no TEXT NOT NULL,
+  invoice_date TEXT,
+  order_no TEXT,
+  customer_no TEXT,
+  source_pdf TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  FOREIGN KEY (supplier_id) REFERENCES suppliers(id)
+);
+
+CREATE TABLE IF NOT EXISTS invoice_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  invoice_id INTEGER NOT NULL,
+  line_no INTEGER NOT NULL,
+  article_no TEXT,
+  description TEXT,
+  qty_expected REAL NOT NULL,
+  FOREIGN KEY (invoice_id) REFERENCES invoices(id)
+);
 """
 
 def main():
