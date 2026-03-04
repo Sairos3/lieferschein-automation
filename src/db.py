@@ -43,26 +43,28 @@ def delivery_note_exists(con: sqlite3.Connection, supplier_id: int, delivery_dat
     return row is not None
 
 
-def insert_delivery_note(con: sqlite3.Connection, data: Dict[str, Any], source_pdf: str) -> int:
+def insert_delivery_note(con, data, source_pdf: str, force: bool = False) -> int:
     supplier_id = upsert_supplier(con, data.get("supplier"), data.get("tax_no"))
 
-    # duplicate protection using business keys
-    if delivery_note_exists(
-        con,
-        supplier_id,
-        data.get("delivery_date"),
-        data.get("customer_no"),
-        data.get("order_no"),
-        data.get("tax_no"),
-    ):
-        raise ValueError(
-            "Duplicate delivery note detected (same supplier + date + customer + order + tax_no)."
-        )
+    # Duplicate protection using business keys (only if not forced)
+    if not force:
+        if delivery_note_exists(
+            con,
+            supplier_id,
+            data.get("delivery_date"),
+            data.get("customer_no"),
+            data.get("order_no"),
+            data.get("tax_no"),
+        ):
+            raise ValueError(
+                "Duplicate delivery note detected (same supplier + date + customer + order + tax_no)."
+            )
+
     cur = con.execute(
         """
         INSERT INTO delivery_notes (
-        supplier_id, delivery_note_no, delivery_date, customer_no, order_no,
-        tax_no, subtotal, vat, total, source_pdf
+          supplier_id, delivery_note_no, delivery_date, customer_no, order_no,
+          tax_no, subtotal, vat, total, source_pdf
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
@@ -71,7 +73,7 @@ def insert_delivery_note(con: sqlite3.Connection, data: Dict[str, Any], source_p
             data.get("delivery_date"),
             data.get("customer_no"),
             data.get("order_no"),
-            data.get("tax_no"),
+            data.get("tax_no") or "",
             data.get("subtotal"),
             data.get("vat"),
             data.get("total"),
@@ -80,7 +82,6 @@ def insert_delivery_note(con: sqlite3.Connection, data: Dict[str, Any], source_p
     )
     delivery_note_id = int(cur.lastrowid)
 
-    # items
     for item in data.get("items", []):
         con.execute(
             """

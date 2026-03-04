@@ -1,3 +1,4 @@
+import sys
 import json
 import logging
 from pathlib import Path
@@ -9,6 +10,7 @@ from src.archive import archive_pdf
 from src.logging_config import setup_logging
 from src.ui_review import needs_review, review_dialog
 from src.ui_duplicate import duplicate_dialog
+from src.ui_file_select import pick_pdf_file
 
 def load_config():
     with open("config.json", "r", encoding="utf-8") as f:
@@ -20,9 +22,19 @@ def main():
     cfg = load_config()
     input_dir = Path(cfg["paths"]["input_dir"])
     db_path = Path(cfg["paths"]["db_path"])
-
     pdfs = sorted(input_dir.glob("*.pdf"))
+    manual_mode = "--manual" in sys.argv
+
     logger.info(f"Found {len(pdfs)} PDF(s) in {input_dir.resolve()}")
+
+    if manual_mode:
+        chosen = pick_pdf_file(input_dir)
+        if not chosen:
+            logger.info("No file selected. Exiting.")
+            return
+        pdfs = [chosen]
+    else:
+        pdfs = sorted(input_dir.glob("*.pdf"))
     for i, p in enumerate(pdfs, start=1):
         print(f"  {i}. {p.name}")
 
@@ -88,48 +100,37 @@ def main():
 
         # ---- Save to database ----
         with get_con(db_path) as con:
-
-            # Check duplicate first
             supplier_id = upsert_supplier(
                 con,
                 (result.get("supplier") or "UNKNOWN"),
                 (result.get("tax_no") or "")
             )
 
-            if delivery_note_exists(
+            is_dup = delivery_note_exists(
                 con,
                 supplier_id=supplier_id,
                 delivery_date=result.get("delivery_date"),
                 customer_no=result.get("customer_no"),
                 order_no=result.get("order_no"),
                 tax_no=result.get("tax_no"),
-            ):
+            )
 
-                logger.warning(f"Duplicate detected: {pdf_path.name}")
+            # Batch mode: block duplicates silently
+            if is_dup and not manual_mode:
+                logger.warning(f"Duplicate blocked: {pdf_path.name}")
+                skipped += 1
+                continue
 
-                if duplicate_dialog(pdf_path.name):
-
-                    corrected = review_dialog(result, title=f"Edit duplicate: {pdf_path.name}")
-
-                    if corrected is None:
-                        skipped += 1
-                        continue
-
-                    result = corrected
-                    logger.info("User edited duplicate data")
-
-                else:
-                    skipped += 1
-                    logger.info("User confirmed duplicate skip")
-                    continue
-
+            # Manual mode: allow import even if "duplicate"
             try:
-                dn_id = insert_delivery_note(con, result, source_pdf=pdf_path.name)
+                dn_id = insert_delivery_note(con, result, source_pdf=pdf_path.name, force=manual_mode)
                 con.commit()
-
                 logger.info(f"Saved to DB. delivery_note_id={dn_id}")
                 imported += 1
-
+            except ValueError as e:
+                logger.warning(str(e))
+                skipped += 1
+                continue
             except Exception:
                 logger.exception("Unexpected error while processing file")
                 skipped += 1
@@ -137,7 +138,7 @@ def main():
         # ---- Archive PDF ----
         archive_root = Path(cfg["paths"]["archive_dir"])
         archived_to = archive_pdf(pdf_path, archive_root, result["supplier"], result["delivery_date"])
-        print("  Archived to:", archived_to)
+        logger.info(f"Archived to: {archived_to}")
     print(f"\nDone. Imported={imported}, Skipped={skipped}")
 
     output_file = Path(cfg["paths"]["output_dir"]) / "master.xlsx"
